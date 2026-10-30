@@ -5,84 +5,254 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>STM32 OTA Yükleme</title>
 <style>
-  body{font-family:system-ui,Arial,sans-serif;max-width:560px;margin:24px auto;padding:0 16px;color:#222}
-  h1{font-size:1.3rem}
-  label{display:block;margin:14px 0 4px;font-weight:600}
-  input[type=password],input[type=file]{width:100%;box-sizing:border-box;padding:8px}
-  button{margin-top:18px;padding:10px 18px;font-size:1rem;cursor:pointer}
-  #log{white-space:pre-wrap;background:#f4f4f4;border-radius:6px;padding:10px;margin-top:18px;min-height:60px;font-family:monospace;font-size:.9rem}
-  .ok{color:#0a7a2f}.err{color:#b00020}
-  small{color:#666}
+  :root{
+    --bg:#f5f7fa; --card:#ffffff; --text:#1c2733; --muted:#5f6c7b; --line:#dfe5ec;
+    --accent:#0b6bcb; --accent-ink:#ffffff; --ok:#0a7a2f; --ok-bg:#e6f4ea;
+    --warn:#8a5a00; --warn-bg:#fff4db; --err:#b00020; --err-bg:#fdeaed; --chip:#eef2f7;
+  }
+  @media (prefers-color-scheme: dark){
+    :root{
+      --bg:#0f141a; --card:#171e26; --text:#e6ebf1; --muted:#9aa7b5; --line:#2a3440;
+      --accent:#4da3ff; --accent-ink:#04121f; --ok:#5ed38a; --ok-bg:#12301f;
+      --warn:#ffcc66; --warn-bg:#3a2d0f; --err:#ff8095; --err-bg:#3a1520; --chip:#202a35;
+    }
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--text);
+       font:16px/1.5 system-ui,-apple-system,"Segoe UI",Roboto,Arial,sans-serif}
+  .wrap{max-width:620px;margin:0 auto;padding:28px 16px 48px}
+  header h1{font-size:1.45rem;margin:0 0 4px}
+  header p{margin:0;color:var(--muted)}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:14px;
+        padding:18px;margin-top:18px}
+  .card h2{font-size:.8rem;letter-spacing:.06em;text-transform:uppercase;
+           color:var(--muted);margin:0 0 12px;font-weight:600}
+  .live{display:flex;align-items:center;gap:14px}
+  .ver{font-size:2.4rem;font-weight:700;line-height:1;min-width:2.2ch;text-align:center}
+  .ver small{display:block;font-size:.7rem;font-weight:600;color:var(--muted);letter-spacing:.05em}
+  .meta{display:flex;flex-wrap:wrap;gap:6px;margin-top:2px}
+  .chip{background:var(--chip);border-radius:999px;padding:3px 10px;font-size:.85rem;
+        font-family:ui-monospace,Consolas,monospace}
+  label{display:block;font-weight:600;margin:0 0 6px}
+  .field+.field{margin-top:18px}
+  .row{display:flex;gap:8px}
+  input[type=password],input[type=text]{flex:1;min-width:0;padding:10px 12px;font-size:1rem;
+        border:1px solid var(--line);border-radius:10px;background:var(--bg);color:var(--text)}
+  input:focus-visible,button:focus-visible,.drop:focus-within{outline:2px solid var(--accent);outline-offset:2px}
+  .ghost{padding:10px 14px;border:1px solid var(--line);border-radius:10px;background:transparent;
+         color:var(--text);cursor:pointer;font-size:.9rem}
+  .hint{color:var(--muted);font-size:.85rem;margin-top:6px}
+  .drop{display:block;font-weight:400;border:2px dashed var(--line);border-radius:12px;padding:22px 14px;
+        text-align:center;cursor:pointer;color:var(--muted);transition:border-color .15s,background .15s}
+  .drop:hover,.drop.over{border-color:var(--accent);background:var(--chip)}
+  .drop b{color:var(--text)}
+  .drop input{position:absolute;opacity:0;width:1px;height:1px}
+  .preview{margin-top:12px;display:none}
+  .preview.show{display:block}
+  .kv{display:grid;grid-template-columns:auto 1fr;gap:4px 14px;font-size:.95rem}
+  .kv dt{color:var(--muted)} .kv dd{margin:0;font-family:ui-monospace,Consolas,monospace;word-break:break-all}
+  .note{margin-top:12px;padding:10px 12px;border-radius:10px;font-size:.9rem;display:none}
+  .note.show{display:block}
+  .note.warn{background:var(--warn-bg);color:var(--warn)}
+  .note.err{background:var(--err-bg);color:var(--err)}
+  .note.ok{background:var(--ok-bg);color:var(--ok)}
+  button.go{width:100%;margin-top:20px;padding:13px;font-size:1.05rem;font-weight:600;border:0;
+            border-radius:12px;background:var(--accent);color:var(--accent-ink);cursor:pointer}
+  button.go:disabled{opacity:.5;cursor:not-allowed}
+  ol.steps{list-style:none;margin:0;padding:0}
+  ol.steps li{display:flex;align-items:center;gap:10px;padding:7px 0;color:var(--muted)}
+  ol.steps .dot{width:22px;height:22px;border-radius:50%;border:2px solid var(--line);
+                display:grid;place-items:center;font-size:.75rem;flex:none}
+  ol.steps li.active{color:var(--text)} ol.steps li.active .dot{border-color:var(--accent);
+                border-top-color:transparent;animation:spin .8s linear infinite}
+  ol.steps li.done{color:var(--text)} ol.steps li.done .dot{background:var(--ok);border-color:var(--ok);color:#fff}
+  ol.steps li.fail{color:var(--err)} ol.steps li.fail .dot{background:var(--err);border-color:var(--err);color:#fff}
+  @keyframes spin{to{transform:rotate(360deg)}}
+  @media (prefers-reduced-motion: reduce){ol.steps li.active .dot{animation:none}}
+  footer{margin-top:22px;color:var(--muted);font-size:.85rem}
 </style>
 </head>
 <body>
-<h1>STM32 OTA – Yeni sürüm yükle</h1>
-<p><small>Seçtiğin .bin dosyası GitHub'a yüklenir ve <code>latest.json</code> otomatik güncellenir. ESP32 yeni sürümü kendisi bulup STM32'ye gönderir.</small></p>
+<div class="wrap">
+  <header>
+    <h1>STM32 OTA – Yeni sürüm yükle</h1>
+    <p>Yüklediğin yazılımı ESP32 kendisi bulur ve STM32'ye gönderir.</p>
+  </header>
 
-<label for="tok">GitHub anahtarı (token)</label>
-<input id="tok" type="password" autocomplete="off" placeholder="github_pat_...">
-<small>Anahtar yalnızca bu tarayıcı sekmesinde durur, hiçbir yere kaydedilmez.</small>
+  <section class="card" aria-live="polite">
+    <h2>Şu an yayında</h2>
+    <div class="live">
+      <div class="ver" id="curVer">–<small>SÜRÜM</small></div>
+      <div>
+        <div id="curName">Yükleniyor…</div>
+        <div class="meta" id="curMeta"></div>
+      </div>
+    </div>
+  </section>
 
-<label for="f">Firmware dosyası (ör. led_v5.bin)</label>
-<input id="f" type="file" accept=".bin">
+  <section class="card">
+    <h2>Yeni sürüm</h2>
+    <div class="field">
+      <label for="tok">GitHub anahtarı (token)</label>
+      <div class="row">
+        <input id="tok" type="password" autocomplete="off" placeholder="github_pat_...">
+        <button class="ghost" id="eye" type="button" aria-label="Anahtarı göster veya gizle">Göster</button>
+      </div>
+      <div class="hint">Anahtar yalnızca bu sekmede durur, hiçbir yere kaydedilmez.</div>
+    </div>
 
-<button id="go">Yükle</button>
-<div id="log"></div>
+    <div class="field">
+      <label for="f">Firmware dosyası</label>
+      <label class="drop" id="drop" for="f">
+        <b id="dropTitle">Dosya seç</b> ya da buraya sürükle<br>
+        <span class="hint">Dosya adı <code>led_v5.bin</code> gibi olmalı (sonunda <code>_v&lt;sayı&gt;.bin</code>)</span>
+        <input id="f" type="file" accept=".bin">
+      </label>
+      <div class="preview" id="preview">
+        <dl class="kv">
+          <dt>Dosya</dt><dd id="pName"></dd>
+          <dt>Sürüm</dt><dd id="pVer"></dd>
+          <dt>Boyut</dt><dd id="pSize"></dd>
+          <dt>CRC32</dt><dd id="pCrc"></dd>
+        </dl>
+      </div>
+      <div class="note" id="note" role="status"></div>
+    </div>
+
+    <button class="go" id="go" disabled>Yükle</button>
+  </section>
+
+  <section class="card" id="progressCard" style="display:none">
+    <h2>İlerleme</h2>
+    <ol class="steps" id="steps">
+      <li data-s="0"><span class="dot"></span>Dosya hazırlanıyor</li>
+      <li data-s="1"><span class="dot"></span>Dosya GitHub'a yükleniyor</li>
+      <li data-s="2"><span class="dot"></span>latest.json güncelleniyor</li>
+    </ol>
+    <div class="note" id="result" role="status"></div>
+  </section>
+
+  <footer>ESP32 yeni sürümü 30 saniyede bir kontrol eder. GitHub önbelleği yüzünden değişim 1–5 dakika sürebilir.</footer>
+</div>
 
 <script>
 const OWNER = "gormusoglugamze", REPO = "ota-firmware", BRANCH = "main";
 const MAX_SIZE = 0x1BC00;                       // uygulama alanı: 0x08004000 - 0x0801FC00
 const NAME_RE = /^[A-Za-z0-9_\-]+_v(\d+)\.bin$/;
 const API = "https://api.github.com/repos/" + OWNER + "/" + REPO + "/contents/";
+const $ = id => document.getElementById(id);
 
-const logEl = document.getElementById("log");
-function log(m, cls){ const s=document.createElement("div"); if(cls) s.className=cls; s.textContent=m; logEl.appendChild(s); }
-
-// CRC32 (zlib ile aynı)
+// ---- CRC32 (zlib ile aynı) ----
 const T = new Uint32Array(256);
 for (let i=0;i<256;i++){ let c=i; for(let k=0;k<8;k++) c = (c&1) ? (0xEDB88320 ^ (c>>>1)) : (c>>>1); T[i]=c>>>0; }
 function crc32(u8){ let c=0xFFFFFFFF; for(let i=0;i<u8.length;i++) c = T[(c^u8[i])&0xFF] ^ (c>>>8); return ((c^0xFFFFFFFF)>>>0).toString(16).padStart(8,"0"); }
-
 function b64(u8){ let s=""; for(let i=0;i<u8.length;i+=0x8000) s+=String.fromCharCode.apply(null,u8.subarray(i,i+0x8000)); return btoa(s); }
 function b64text(t){ return b64(new TextEncoder().encode(t)); }
 
+// ---- Yayındaki sürüm ----
+let current = null;
+async function loadCurrent(){
+  try{
+    const r = await fetch(API+"latest.json?ref="+BRANCH, {cache:"no-store",
+      headers:{"Accept":"application/vnd.github.raw+json"}});
+    if(!r.ok) throw new Error(r.status);
+    current = JSON.parse(await r.text());
+    $("curVer").firstChild.textContent = current.version;
+    $("curName").textContent = current.name;
+    $("curMeta").innerHTML = "";
+    [current.size+" bayt", "CRC32 "+current.crc32].forEach(t=>{
+      const s=document.createElement("span"); s.className="chip"; s.textContent=t; $("curMeta").appendChild(s); });
+  }catch(e){
+    current = null;
+    $("curName").textContent = "Bilgi alınamadı";
+  }
+  checkFile();
+}
+
+// ---- Dosya seçimi ve önizleme ----
+let picked = null;       // {file, data, info}
+function note(el, cls, text){ el.className = "note show "+cls; el.textContent = text; }
+function clearNote(el){ el.className = "note"; el.textContent = ""; }
+
+async function pickFile(file){
+  picked = null; $("preview").classList.remove("show"); clearNote($("note")); $("go").disabled = true;
+  if(!file){ $("dropTitle").textContent = "Dosya seç"; return; }
+  $("dropTitle").textContent = file.name;
+  const m = NAME_RE.exec(file.name);
+  if(!m) return note($("note"),"err","Dosya adı led_v5.bin gibi olmalı (sonunda _v<sayı>.bin).");
+  if(file.size < 1024 || file.size > MAX_SIZE)
+    return note($("note"),"err","Dosya boyutu uygun değil: "+file.size+" bayt (en fazla "+MAX_SIZE+").");
+  const data = new Uint8Array(await file.arrayBuffer());
+  const info = {version:parseInt(m[1],10), name:file.name, size:data.length, crc32:crc32(data)};
+  picked = {file, data, info};
+  $("pName").textContent = info.name; $("pVer").textContent = info.version;
+  $("pSize").textContent = info.size+" bayt"; $("pCrc").textContent = info.crc32;
+  $("preview").classList.add("show");
+  checkFile();
+}
+function checkFile(){
+  if(!picked) return;
+  clearNote($("note"));
+  if(current && picked.info.version <= current.version){
+    note($("note"),"warn","Dikkat: bu sürüm ("+picked.info.version+") yayındakinden ("+current.version+
+      ") büyük değil. ESP32 bunu yeni sürüm saymaz ve güncellemez. Dosya adındaki sayıyı büyüt.");
+  }
+  $("go").disabled = false;
+}
+$("f").addEventListener("change", e => pickFile(e.target.files[0]));
+["dragenter","dragover"].forEach(ev=>$("drop").addEventListener(ev,e=>{e.preventDefault();$("drop").classList.add("over");}));
+["dragleave","drop"].forEach(ev=>$("drop").addEventListener(ev,e=>{e.preventDefault();$("drop").classList.remove("over");}));
+$("drop").addEventListener("drop", e => { const f=e.dataTransfer.files[0]; if(f){ $("f").value=""; pickFile(f);} });
+$("eye").onclick = () => { const p=$("tok"); const show = p.type==="password";
+  p.type = show ? "text" : "password"; $("eye").textContent = show ? "Gizle" : "Göster"; };
+
+// ---- GitHub'a yazma ----
 async function gh(path, opt, token){
-  const r = await fetch(API+path, Object.assign({headers:{
+  return fetch(API+path, Object.assign({headers:{
     "Authorization":"Bearer "+token, "Accept":"application/vnd.github+json"}}, opt));
-  return r;
 }
 async function put(path, contentB64, msg, token){
   let sha;
   const g = await gh(path+"?ref="+BRANCH, {cache:"no-store"}, token);
   if (g.ok) sha = (await g.json()).sha;
+  else if (g.status === 401) throw new Error("Anahtar geçersiz ya da süresi dolmuş (401).");
   else if (g.status !== 404) throw new Error("Okuma hatası "+g.status+" ("+path+")");
   const body = {message:msg, content:contentB64, branch:BRANCH}; if (sha) body.sha = sha;
   const r = await gh(path, {method:"PUT", body:JSON.stringify(body)}, token);
-  if (!r.ok) throw new Error("Yazma hatası "+r.status+" ("+path+"): "+(await r.text()).slice(0,200));
+  if (r.status === 403 || r.status === 404) throw new Error("Yazma izni yok ("+r.status+"). Anahtarda Contents: Read and write izni olmalı.");
+  if (!r.ok) throw new Error("Yazma hatası "+r.status+" ("+path+"): "+(await r.text()).slice(0,160));
+}
+function setStep(n, state){
+  const li = document.querySelector('#steps li[data-s="'+n+'"]');
+  li.className = state; li.querySelector(".dot").textContent = state==="done" ? "✓" : state==="fail" ? "!" : "";
 }
 
-document.getElementById("go").onclick = async () => {
-  logEl.textContent = "";
-  const token = document.getElementById("tok").value.trim();
-  const file = document.getElementById("f").files[0];
-  if (!token) return log("Önce GitHub anahtarını yaz.","err");
-  if (!file)  return log("Önce bir .bin dosyası seç.","err");
-  const m = NAME_RE.exec(file.name);
-  if (!m) return log("Dosya adı led_v5.bin gibi olmalı (sonunda _v<sayı>.bin).","err");
-  if (file.size < 1024 || file.size > MAX_SIZE) return log("Dosya boyutu uygun değil: "+file.size+" bayt (en fazla "+MAX_SIZE+").","err");
-  const data = new Uint8Array(await file.arrayBuffer());
-  const info = {version:parseInt(m[1],10), name:file.name, size:data.length, crc32:crc32(data)};
-  log("Sürüm: "+info.version+"  Boyut: "+info.size+" bayt  CRC32: "+info.crc32);
-  document.getElementById("go").disabled = true;
+$("go").onclick = async () => {
+  const token = $("tok").value.trim();
+  if(!token) return note($("note"),"err","Önce GitHub anahtarını yaz.");
+  if(!picked) return;
+  $("go").disabled = true;
+  $("progressCard").style.display = "block"; clearNote($("result"));
+  [0,1,2].forEach(i=>setStep(i,""));
+  let step = 0;
   try{
-    log("1/2 Dosya yükleniyor...");
-    await put("firmware/"+file.name, b64(data), "Yeni firmware: "+file.name, token);
-    log("2/2 latest.json güncelleniyor...");
-    await put("latest.json", b64text(JSON.stringify(info)+"\n"), "Sürüm "+info.version+" yayınlandı", token);
-    log("TAMAM. ESP32 bir sonraki kontrolde (birkaç dakika içinde, GitHub önbelleği yüzünden) yeni sürümü alacak.","ok");
-  }catch(e){ log(String(e.message||e),"err"); }
-  document.getElementById("go").disabled = false;
+    setStep(0,"active"); setStep(0,"done");
+    step = 1; setStep(1,"active");
+    await put("firmware/"+picked.info.name, b64(picked.data), "Yeni firmware: "+picked.info.name, token);
+    setStep(1,"done");
+    step = 2; setStep(2,"active");
+    await put("latest.json", b64text(JSON.stringify(picked.info)+"\n"), "Sürüm "+picked.info.version+" yayınlandı", token);
+    setStep(2,"done");
+    note($("result"),"ok","TAMAM. Sürüm "+picked.info.version+" yayında. ESP32 bir sonraki kontrolde (1–5 dakika içinde) yeni sürümü alacak.");
+    await loadCurrent();
+  }catch(e){
+    setStep(step,"fail");
+    note($("result"),"err",String(e.message||e));
+  }
+  $("go").disabled = !picked;
 };
+
+loadCurrent();
 </script>
 </body>
 </html>
